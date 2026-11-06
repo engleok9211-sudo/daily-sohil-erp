@@ -445,17 +445,43 @@
             }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }
 
-        // 10. /api/accounts
-        if (path === '/api/accounts') {
+        // 10. /api/accounts (GET)
+        if (path === '/api/accounts' && (!method || method === 'GET')) {
             const cat = params.get('category') || '';
             const kw = params.get('keyword') || '';
-            let accs = db.accounts;
+            let accs = db.accounts || [];
             if (cat) accs = accs.filter(a => a.category === cat);
-            if (kw) accs = accs.filter(a => a.account_name.includes(kw) || String(a.account_code).includes(kw));
-            return new Response(JSON.stringify({
-                status: 'success',
-                accounts: accs
-            }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+            if (kw) accs = accs.filter(a => (a.account_name && a.account_name.includes(kw)) || String(a.account_code).includes(kw));
+            return new Response(JSON.stringify(accs), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        // 10-1. /api/account/create 및 /api/accounts (POST)
+        if ((path === '/api/account/create' || path === '/api/accounts') && method === 'POST') {
+            const body = JSON.parse(init.body || '{}');
+            const code = String(body.account_code || '');
+            const existingIdx = db.accounts.findIndex(a => String(a.account_code) === code);
+            const newAcc = {
+                account_code: code,
+                account_name: body.account_name,
+                category: body.category,
+                sub_category: body.sub_category || body.subcategory || '',
+                subcategory: body.sub_category || body.subcategory || '',
+                normal_balance: body.normal_balance || body.balance_type || '차변',
+                balance_type: body.normal_balance || body.balance_type || '차변',
+                tax_type: body.tax_type || '면세',
+                is_active: 1,
+                description: body.description || ''
+            };
+            if (existingIdx >= 0) {
+                db.accounts[existingIdx] = Object.assign(db.accounts[existingIdx], newAcc);
+            } else {
+                db.accounts.push(newAcc);
+            }
+            saveDB();
+            return new Response(JSON.stringify({ success: true, message: '등록 완료', account: newAcc }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' }
+            });
         }
 
         // 11. /api/ledger/counterparty
@@ -1137,30 +1163,107 @@
         <!-- TAB 8: 📚 계정과목 관리                                     -->
         <!-- ======================================================== -->
         <div id="tab-accounts" class="tab-content">
-            <div class="card" style="margin-bottom:1.5rem;">
-                <div class="toolbar"><h2 style="font-size:1.15rem; font-weight:700;">📚 신규 계정과목 등록</h2></div>
+            <div class="card" style="margin-bottom:1.5rem; border-top: 4px solid var(--primary);">
+                <div class="toolbar" style="margin-bottom:0.75rem;">
+                    <div>
+                        <h2 style="font-size:1.2rem; font-weight:800; color:var(--primary); display:flex; align-items:center; gap:0.5rem;">
+                            <span>📚 표준 계정과목 및 계정코드 등록·관리</span>
+                        </h2>
+                        <p style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">
+                            대분류를 선택하면 해당 표준 계정코드와 추천 계정과목이 원클릭 칩으로 즉시 제공됩니다.
+                        </p>
+                    </div>
+                    <button type="button" class="btn btn-outline" onclick="restoreAllStandardAccounts()" style="font-weight:700;">
+                        ⚡ 표준 계정과목 52선 일괄 복원/채우기
+                    </button>
+                </div>
+
+                <!-- 💡 대분류 선택 및 추천 칩 안내 박스 -->
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:0.5rem; padding:0.85rem; margin-bottom:1rem;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.5rem;">
+                        <span style="font-size:0.85rem; font-weight:700; color:#334155;">✨ 대분류별 대표 추천 계정과목 (클릭 시 코드·과목명 자동 입력):</span>
+                        <span id="acc_cat_badge" class="badge badge-primary">자산 (1000번대)</span>
+                    </div>
+                    <div id="acc_preset_chips" style="display:flex; flex-wrap:wrap; gap:0.4rem;">
+                        <!-- 자바스크립트로 동적 칩 렌더링 -->
+                    </div>
+                </div>
+
                 <form id="accForm" onsubmit="submitAccount(event)">
                     <div class="form-grid">
-                        <div class="form-group"><label>계정코드 (4자리) *</label><input type="text" id="acc_code" required maxlength="4"></div>
-                        <div class="form-group"><label>계정과목명 *</label><input type="text" id="acc_name" required></div>
-                        <div class="form-group"><label>대분류 *</label><select id="acc_cat"><option value="자산">자산 (1000)</option><option value="부채">부채 (2000)</option><option value="자본">자본 (3000)</option><option value="수익">수익 (4000)</option><option value="원가">원가 (5000)</option><option value="판관비">판관비 (8000)</option></select></div>
-                        <div class="form-group"><label>세부분류</label><input type="text" id="acc_sub"></div>
-                        <div class="form-group"><label>정규 잔액위치 *</label><select id="acc_bal"><option value="차변">차변 (Debit)</option><option value="대변">대변 (Credit)</option></select></div>
-                        <div class="form-group"><label>설명</label><input type="text" id="acc_desc"></div>
+                        <div class="form-group">
+                            <label>대분류 *</label>
+                            <select id="acc_cat" onchange="onAccCatChanged(this.value)" style="font-weight:700; color:var(--primary);">
+                                <option value="자산">자산 (1000번대 - 차변)</option>
+                                <option value="부채">부채 (2000번대 - 대변)</option>
+                                <option value="자본">자본 (3000번대 - 대변)</option>
+                                <option value="수익">수익/매출 (4000번대 - 대변)</option>
+                                <option value="원가">매출원가 (5000번대 - 차변)</option>
+                                <option value="판관비">판매관리비 (6000번대 - 차변)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>계정코드 (4자리) *</label>
+                            <input type="text" id="acc_code" required maxlength="4" placeholder="예: 1110" style="font-weight:bold; font-size:1rem; text-align:center; color:var(--primary);">
+                        </div>
+                        <div class="form-group">
+                            <label>계정과목명 *</label>
+                            <input type="text" id="acc_name" required placeholder="예: 보통예금(주거래)" style="font-weight:600;">
+                        </div>
+                        <div class="form-group">
+                            <label>세부분류</label>
+                            <input type="text" id="acc_sub" placeholder="예: 당좌자산 / 매출채권 / 인건비">
+                        </div>
+                        <div class="form-group">
+                            <label>정규 잔액위치 *</label>
+                            <select id="acc_bal">
+                                <option value="차변">차변 (Debit) - 자산/원가/판관비</option>
+                                <option value="대변">대변 (Credit) - 부채/자본/수익</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>적요 및 계정 설명</label>
+                            <input type="text" id="acc_desc" placeholder="실무 용도 및 거래 내용">
+                        </div>
                     </div>
-                    <div style="display:flex; justify-content:flex-end;"><button type="submit" class="btn btn-success">+ 계정과목 저장</button></div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.75rem;">
+                        <span style="font-size:0.85rem; color:#64748b;">* 코드는 중복될 수 없으며, 기존 코드로 저장 시 정보가 갱신됩니다.</span>
+                        <button type="submit" class="btn btn-success" style="padding:0.6rem 1.5rem; font-weight:700;">+ 계정과목 등록·저장</button>
+                    </div>
                 </form>
             </div>
+
             <div class="card">
                 <div class="toolbar">
-                    <h2 style="font-size:1.15rem; font-weight:700;">계정과목 코드체계 (CoA)</h2>
+                    <div>
+                        <h2 style="font-size:1.15rem; font-weight:700;">🏛️ 데일리소힐 표준 계정과목 코드체계 (CoA)</h2>
+                        <span id="acc-total-count" style="font-size:0.85rem; color:var(--text-muted);">총 활성 계정과목 불러오는 중...</span>
+                    </div>
                     <div class="search-box">
-                        <select id="acc_filter_cat" onchange="loadAccounts()"><option value="">전체 대분류</option><option value="자산">자산</option><option value="부채">부채</option><option value="자본">자본</option><option value="수익">수익</option><option value="원가">원가</option><option value="판관비">판관비</option></select>
-                        <input type="text" id="acc_filter_kw" placeholder="과목명/코드 검색" oninput="loadAccounts()">
+                        <select id="acc_filter_cat" onchange="loadAccounts()" style="font-weight:600;">
+                            <option value="">전체 대분류</option>
+                            <option value="자산">자산 (1000)</option>
+                            <option value="부채">부채 (2000)</option>
+                            <option value="자본">자본 (3000)</option>
+                            <option value="수익">수익 (4000)</option>
+                            <option value="원가">원가 (5000)</option>
+                            <option value="판관비">판관비 (6000)</option>
+                        </select>
+                        <input type="text" id="acc_filter_kw" placeholder="과목명 또는 4자리 코드 검색" oninput="loadAccounts()">
                     </div>
                 </div>
                 <table>
-                    <thead><tr><th>코드</th><th>계정과목명</th><th>대분류</th><th>세부분류</th><th>정규잔액</th><th>설명</th><th>상태</th></tr></thead>
+                    <thead>
+                        <tr>
+                            <th style="width:90px; text-align:center;">계정코드</th>
+                            <th style="width:180px;">계정과목명</th>
+                            <th style="width:100px; text-align:center;">대분류</th>
+                            <th style="width:130px;">세부분류</th>
+                            <th style="width:90px; text-align:center;">정규잔액</th>
+                            <th>계정 해설 및 실무 적요 지침</th>
+                            <th style="width:80px; text-align:center;">상태</th>
+                        </tr>
+                    </thead>
                     <tbody id="acc-tbody"><tr><td colspan="7" class="text-center">불러오는 중...</td></tr></tbody>
                 </table>
             </div>
@@ -2108,19 +2211,30 @@
         async function loadAccounts() {
             const cat = document.getElementById('acc_filter_cat') ? document.getElementById('acc_filter_cat').value : '';
             const kw = document.getElementById('acc_filter_kw') ? document.getElementById('acc_filter_kw').value : '';
-            const res = await fetch(`/api/accounts?category=${cat}&keyword=${kw}`);
-            globalAccounts = await res.json();
+            const res = await fetch(`/api/accounts?category=${encodeURIComponent(cat)}&keyword=${encodeURIComponent(kw)}`);
+            const data = await res.json();
+            globalAccounts = Array.isArray(data) ? data : (data.accounts || []);
+            
+            const countElem = document.getElementById('acc-total-count');
+            if (countElem) {
+                countElem.innerText = `현재 조회: 총 ${globalAccounts.length}개 활성 계정과목`;
+            }
+
             const tbody = document.getElementById('acc-tbody');
             if (tbody) {
+                if (!globalAccounts.length) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:2.5rem; color:var(--text-muted);"><div style="font-size:1.1rem; font-weight:bold; margin-bottom:0.5rem;">등록된 계정과목이 없습니다.</div><button type="button" class="btn btn-primary btn-sm" onclick="restoreAllStandardAccounts()">⚡ 표준 계정과목 52선 즉시 불러오기</button></td></tr>';
+                    return;
+                }
                 tbody.innerHTML = globalAccounts.map(a => `
                     <tr>
-                        <td><code>${a.account_code}</code></td>
-                        <td><strong>${a.account_name}</strong></td>
-                        <td><span class="badge badge-purple">${a.category}</span></td>
-                        <td>${a.subcategory || '-'}</td>
-                        <td>${a.balance_type}</td>
-                        <td>${a.description || '-'}</td>
-                        <td><span class="badge ${a.is_active?'badge-success':'badge-warning'}">${a.is_active?'사용':'중지'}</span></td>
+                        <td style="text-align:center;"><code style="font-size:1rem; font-weight:800; color:var(--primary); background:#e0e7ff; padding:0.2rem 0.5rem; border-radius:0.25rem;">${a.account_code}</code></td>
+                        <td><strong style="font-size:0.95rem;">${a.account_name}</strong></td>
+                        <td style="text-align:center;"><span class="badge badge-purple" style="font-weight:700;">${a.category}</span></td>
+                        <td>${a.sub_category || a.subcategory || '-'}</td>
+                        <td style="text-align:center;"><span class="badge ${(a.normal_balance==='차변'||a.balance_type==='차변')?'badge-primary':'badge-warning'}">${a.normal_balance || a.balance_type || '차변'}</span></td>
+                        <td style="color:#475569; font-size:0.875rem;">${a.description || '-'}</td>
+                        <td style="text-align:center;"><span class="badge ${a.is_active?'badge-success':'badge-warning'}">${a.is_active?'사용중':'중지'}</span></td>
                     </tr>
                 `).join('');
             }
@@ -2168,6 +2282,160 @@
             }
         }
 
+        
+        // ==========================================
+        // 📚 계정과목 마스터 프리셋 및 자동 채번 지원
+        // ==========================================
+        const STANDARD_PRESETS = {
+            '자산': [
+                {code: '1110', name: '현금', sub: '당좌자산', bal: '차변', desc: '사내 소액 현금 시재'},
+                {code: '1120', name: '보통예금(주거래)', sub: '당좌자산', bal: '차변', desc: '법인 주거래 통장 (국민은행)'},
+                {code: '1121', name: '보통예금(사업수익금)', sub: '당좌자산', bal: '차변', desc: 'B2B 용역 및 교육비 수납 계좌'},
+                {code: '1122', name: '보통예금(수강료/회비)', sub: '당좌자산', bal: '차변', desc: '수강료 및 정기회비 전용 수납 계좌'},
+                {code: '1130', name: '정기예금', sub: '단기금융상품', bal: '차변', desc: '정기예금 및 단기 금융자산'},
+                {code: '1210', name: '외상매출금', sub: '매출채권', bal: '차변', desc: '교육/용역 납품 미수 대금'},
+                {code: '1230', name: '미수금', sub: '기타채권', bal: '차변', desc: '비품 매각 등 일반 미수금'},
+                {code: '1240', name: '선급금', sub: '당좌자산', bal: '차변', desc: '교재 인쇄 등 사전 선급금'},
+                {code: '1310', name: '부가세대급금', sub: '세무자산', bal: '차변', desc: '매입세액 공제 대상 VAT (10%)'},
+                {code: '1410', name: '상품/재고자산(교재)', sub: '재고자산', bal: '차변', desc: '자체 발간 교육도서 재고'},
+                {code: '1510', name: '집기비품', sub: '유형자산', bal: '차변', desc: '교육장 PC, 빔프로젝터, 책걸상'},
+                {code: '1530', name: '전산기기(서버/촬영)', sub: '유형자산', bal: '차변', desc: '촬영 카메라, 스트리밍 서버 장비'},
+                {code: '1540', name: '소프트웨어', sub: '무형자산', bal: '차변', desc: '통합 ERP, LMS 플랫폼 라이선스'},
+                {code: '1610', name: '임차보증금', sub: '기타비유동', bal: '차변', desc: '본사 사무실 및 교육장 임대차 보증금'}
+            ],
+            '부채': [
+                {code: '2110', name: '외상매입금', sub: '매입채무', bal: '대변', desc: '교재 인쇄 등 원가 외상 미지급분'},
+                {code: '2120', name: '미지급금', sub: '기타채무', bal: '대변', desc: '일반 운영경비 및 비품 구입 미지급금'},
+                {code: '2130', name: '미지급비용', sub: '유동부채', bal: '대변', desc: '결산 시 미지급 이자, 임차료'},
+                {code: '2140', name: '예수금(원천세)', sub: '세무부채', bal: '대변', desc: '강사료 및 원고료 소득세(3.3%/8.8%) 예수금'},
+                {code: '2141', name: '예수금(4대보험)', sub: '세무부채', bal: '대변', desc: '근로자 부담 4대보험 공제분'},
+                {code: '2150', name: '부가세예수금', sub: '세무부채', bal: '대변', desc: '과세 매출 시 거래처 수납 VAT (10%)'},
+                {code: '2160', name: '선수금(선수수익)', sub: '계약부채', bal: '대변', desc: '차기 분기 교육과정 수강료 선납분'},
+                {code: '2210', name: '단기차입금', sub: '금융부채', bal: '대변', desc: '금융기관 1년 이내 만기 차입금'},
+                {code: '2310', name: '장기차입금', sub: '비유동부채', bal: '대변', desc: '시설자금 장기 대출금'},
+                {code: '2320', name: '퇴직급여충당부채', sub: '충당부채', bal: '대변', desc: '임직원 법정 퇴직금 충당액'}
+            ],
+            '자본': [
+                {code: '3110', name: '자본금', sub: '자본금', bal: '대변', desc: '법인 설립 및 출자 자본금'},
+                {code: '3210', name: '자본잉여금', sub: '자본잉여금', bal: '대변', desc: '주식발행초과금 등 출자 잉여금'},
+                {code: '3310', name: '이익잉여금(전기이월)', sub: '이익잉여금', bal: '대변', desc: '전기까지 누적된 영업이익 잉여금'},
+                {code: '3320', name: '당기순손익', sub: '대체계정', bal: '대변', desc: '당기 결산 손익 대체 계정'}
+            ],
+            '수익': [
+                {code: '4110', name: '평생교육수강료매출', sub: '영업매출', bal: '대변', desc: '아카데미 정규과정 수강료 (면세)'},
+                {code: '4120', name: 'B2B기업위탁교육매출', sub: '영업매출', bal: '대변', desc: '기업 맞춤형 위탁 직무교육 (과세)'},
+                {code: '4130', name: '연구용역컨설팅매출', sub: '영업매출', bal: '대변', desc: '지자체·공공기관 평생학습 연구용역 (과세)'},
+                {code: '4140', name: '교재출판판매매출', sub: '영업매출', bal: '대변', desc: '자체 발간 교육도서 및 워크북 판매 (면세)'},
+                {code: '4150', name: '온라인VOD콘텐츠매출', sub: '영업매출', bal: '대변', desc: '동영상 강의 스트리밍 구독 및 판매 (과세)'},
+                {code: '4210', name: '이자수익', sub: '영업외수익', bal: '대변', desc: '예금 결산 이자수익'},
+                {code: '4220', name: '정부지원금수익', sub: '영업외수익', bal: '대변', desc: '교육 바우처 및 국고 보조금'}
+            ],
+            '원가': [
+                {code: '5110', name: '강사료(교육직접원가)', sub: '인건원가', bal: '차변', desc: '외래 초빙 강사 및 교수 특강료 (원천세 3.3%/8.8%)'},
+                {code: '5120', name: '연구개발및자문료', sub: '연구원가', bal: '차변', desc: '교육과정 기획자문 및 연구원 자문료'},
+                {code: '5130', name: '교재인쇄제작비', sub: '제조원가', bal: '차변', desc: '교육생 배포용 교재 디자인 및 인쇄비 (과세)'},
+                {code: '5140', name: '교육장대관료', sub: '원가경비', bal: '차변', desc: '외부 호텔 세미나룸 대관료 (과세)'},
+                {code: '5150', name: '교육실습재료비', sub: '직접재료', bal: '차변', desc: '수강생 실습 키트 및 소모자재 (과세)'},
+                {code: '5160', name: '온라인교육플랫폼이용료', sub: '기술경비', bal: '차변', desc: 'Zoom, LMS 호스팅 직접원가 (과세)'},
+                {code: '5170', name: '교육행사다과진행비', sub: '현장경비', bal: '차변', desc: '교육생 다과 및 현장 진행비 (과세)'}
+            ],
+            '판관비': [
+                {code: '6110', name: '임직원급여', sub: '인건비', bal: '차변', desc: '상근 연구원 및 임직원 기본급'},
+                {code: '6120', name: '상여금', sub: '인건비', bal: '차변', desc: '명절 상여 및 성과급'},
+                {code: '6130', name: '퇴직급여', sub: '인건비', bal: '차변', desc: '임직원 퇴직급여 전입액'},
+                {code: '6140', name: '복리후생비', sub: '인건비', bal: '차변', desc: '직원 중식대, 4대보험 법인 부담금'},
+                {code: '6210', name: '사무실임차료', sub: '시설비', bal: '차변', desc: '본사 사무실 정기 월 임차료 (과세)'},
+                {code: '6220', name: '수도광열비', sub: '시설비', bal: '차변', desc: '전기요금, 수도세, 가스비'},
+                {code: '6230', name: '통신비', sub: '운영비', bal: '차변', desc: '인터넷 전용선, 대표전화, 우편료'},
+                {code: '6240', name: '세금과공과', sub: '공과금', bal: '차변', desc: '균등분 주민세, 자동차세, 협회비'},
+                {code: '6250', name: '광고선전비', sub: '마케팅비', bal: '차변', desc: '검색광고, SNS 마케팅, 전단지'},
+                {code: '6260', name: '여비교통비', sub: '운영비', bal: '차변', desc: '출장 KTX, 교통비'},
+                {code: '6270', name: '도서인쇄비', sub: '운영비', bal: '차변', desc: '도서 구입, 명함 인쇄'},
+                {code: '6280', name: '사무용소모품비', sub: '운영비', bal: '차변', desc: '복사용지, 토너, 사무용품'},
+                {code: '6290', name: '지급수수료', sub: '수수료', bal: '차변', desc: '카드 결제 PG 수수료, 세무기장료'},
+                {code: '6300', name: '차량유지비', sub: '운영비', bal: '차변', desc: '차량 주유비, 정비비'},
+                {code: '6310', name: '감가상각비', sub: '결산비용', bal: '차변', desc: 'PC, 비품 감가상각비'},
+                {code: '6320', name: '잡손실', sub: '기타비용', bal: '차변', desc: '소액 현금 과부족 등 잡손실'}
+            ]
+        };
+
+        function onAccCatChanged(cat) {
+            const badge = document.getElementById('acc_cat_badge');
+            const chipsBox = document.getElementById('acc_preset_chips');
+            const balSelect = document.getElementById('acc_bal');
+            const codeInput = document.getElementById('acc_code');
+
+            const ranges = {'자산':'1000번대', '부채':'2000번대', '자본':'3000번대', '수익':'4000번대', '원가':'5000번대', '판관비':'6000번대'};
+            if (badge) badge.innerText = `${cat} (${ranges[cat] || ''})`;
+
+            // 잔액위치 자동 선택
+            if (balSelect) {
+                if (['자산', '원가', '판관비'].includes(cat)) balSelect.value = '차변';
+                else balSelect.value = '대변';
+            }
+
+            // 프리셋 칩 렌더링
+            const presets = STANDARD_PRESETS[cat] || [];
+            if (chipsBox) {
+                chipsBox.innerHTML = presets.map((p, idx) => `
+                    <button type="button" class="btn btn-sm" onclick="applyAccPreset('${cat}', ${idx})" 
+                            style="background:#fff; border:1px solid #cbd5e1; color:#1e293b; padding:0.3rem 0.65rem; font-size:0.8rem; border-radius:1rem; cursor:pointer; font-weight:500;"
+                            onmouseover="this.style.background='#e0e7ff'; this.style.borderColor='#6366f1';"
+                            onmouseout="this.style.background='#fff'; this.style.borderColor='#cbd5e1';">
+                        <strong style="color:var(--primary); font-weight:800;">${p.code}</strong> ${p.name}
+                    </button>
+                `).join('');
+            }
+
+            // 다음 추천 코드 자동 입력 (현재 등록된 코드 중 최대값 + 10)
+            if (globalAccounts && globalAccounts.length) {
+                const existingCodes = globalAccounts
+                    .filter(a => a.category === cat)
+                    .map(a => parseInt(a.account_code, 10))
+                    .filter(n => !isNaN(n));
+                if (existingCodes.length && codeInput && !codeInput.value) {
+                    const maxCode = Math.max(...existingCodes);
+                    codeInput.value = String(maxCode + 10);
+                }
+            }
+        }
+
+        function applyAccPreset(cat, idx) {
+            const p = STANDARD_PRESETS[cat][idx];
+            if (!p) return;
+            document.getElementById('acc_cat').value = cat;
+            document.getElementById('acc_code').value = p.code;
+            document.getElementById('acc_name').value = p.name;
+            document.getElementById('acc_sub').value = p.sub;
+            document.getElementById('acc_bal').value = p.bal;
+            document.getElementById('acc_desc').value = p.desc;
+        }
+
+        async function restoreAllStandardAccounts() {
+            if (!confirm('⚡ 52개 K-GAAP 표준 계정과목을 일괄 자동 등록 및 동기화하시겠습니까?')) return;
+            let totalAdded = 0;
+            for (const [cat, list] of Object.entries(STANDARD_PRESETS)) {
+                for (const item of list) {
+                    await fetch('/api/account/create', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            account_code: item.code,
+                            account_name: item.name,
+                            category: cat,
+                            sub_category: item.sub,
+                            normal_balance: item.bal,
+                            tax_type: '면세',
+                            description: item.desc
+                        })
+                    });
+                    totalAdded++;
+                }
+            }
+            alert(`✔ 총 ${totalAdded}개의 표준 계정과목이 성공적으로 동기화되었습니다!`);
+            await loadAccounts();
+        }
+
         async function submitAccount(e) {
             e.preventDefault();
             const payload = {
@@ -2206,30 +2474,33 @@
         }
 
         async function filterSearchModalAccounts() {
-            if (!globalAccounts.length) {
+            if (!globalAccounts || !globalAccounts.length) {
                 const res = await fetch('/api/accounts');
-                globalAccounts = await res.json();
+                const data = await res.json();
+                globalAccounts = Array.isArray(data) ? data : (data.accounts || []);
             }
-            const kw = document.getElementById('modal_acc_search').value.toLowerCase();
+            const kw = (document.getElementById('modal_acc_search') ? document.getElementById('modal_acc_search').value : '').toLowerCase();
             const filtered = globalAccounts.filter(a => {
                 const matchCat = modalCategory ? (a.category === modalCategory) : true;
-                const matchKw = a.account_code.toLowerCase().includes(kw) || a.account_name.toLowerCase().includes(kw);
-                return matchCat && matchKw;
+                const cStr = String(a.account_code || '').toLowerCase();
+                const nStr = String(a.account_name || '').toLowerCase();
+                return matchCat && (cStr.includes(kw) || nStr.includes(kw));
             });
             const tbody = document.getElementById('modal-acc-tbody');
+            if (!tbody) return;
             if (!filtered.length) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center">일치하는 계정과목이 없습니다.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="padding:1.5rem; color:var(--text-muted);">일치하는 계정과목이 없습니다.</td></tr>';
                 return;
             }
             tbody.innerHTML = filtered.map(a => `
                 <tr>
-                    <td><code>${a.account_code}</code></td>
+                    <td><code style="font-weight:bold; color:var(--primary);">${a.account_code}</code></td>
                     <td><strong>${a.account_name}</strong></td>
                     <td><span class="badge badge-purple">${a.category}</span></td>
-                    <td>${a.subcategory || '-'}</td>
-                    <td>${a.balance_type}</td>
+                    <td>${a.sub_category || a.subcategory || '-'}</td>
+                    <td>${a.normal_balance || a.balance_type || '차변'}</td>
                     <td>
-                        <button type="button" class="btn btn-sm btn-outline" onclick="selectModalAccount('${a.account_code}', '${a.account_name}')">선택</button>
+                        <button type="button" class="btn btn-sm btn-primary" onclick="selectModalAccount('${a.account_code}', '${a.account_name}')">선택</button>
                     </td>
                 </tr>
             `).join('');
@@ -2263,6 +2534,7 @@
             loadDashboard();
             loadAccounts();
             loadCounterparties();
+            onAccCatChanged('자산');
         };
     </script>
 </body>
