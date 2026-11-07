@@ -349,6 +349,14 @@
             .card { border: none; box-shadow: none; padding: 0; }
             th { background: #eee !important; color: black !important; }
         }
+    
+        .proof-quick-btn.active {
+            background-color: var(--primary) !important;
+            color: #ffffff !important;
+            border-color: var(--primary) !important;
+            font-weight: 700 !important;
+        }
+    
     </style>
 </head>
 <body>
@@ -862,16 +870,17 @@
                     <div>
                         <span class="card-title">📑 5대 법정 증빙별 독립 원장 (세무 관리 장부)</span>
                         <p style="font-size:0.85rem; color:var(--text-muted); margin-top:2px;">
-                            세무신고 및 국세청 증빙철 관리를 위한 5대 법정 증빙별 전용 독립 원장입니다.
+                            세무신고 및 국세청 증빙철 관리를 위한 5대 법정 증빙별 전용 독립 원장입니다. 기간별 정밀 조회를 지원합니다.
                         </p>
                     </div>
                     <div style="display:flex; gap:0.5rem; align-items:center;">
+                        <button class="btn btn-outline btn-sm" onclick="downloadProofLedgerCSV()">📥 원장 CSV 다운로드</button>
                         <button class="btn btn-outline btn-sm" onclick="window.print()">🖨️ 원장 인쇄 / PDF 출력</button>
                     </div>
                 </div>
 
                 <!-- 5대 증빙 원장 서브탭 버튼들 -->
-                <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:1.25rem; border-bottom:2px solid #e2e8f0; padding-bottom:0.75rem;">
+                <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:1rem; border-bottom:2px solid #e2e8f0; padding-bottom:0.75rem;">
                     <button id="btn-proof-sub-all" class="btn btn-primary btn-sm" onclick="setProofSubLedger('전체', this)">📋 전체 증빙 요약 및 원장</button>
                     <button id="btn-proof-sub-tax" class="btn btn-outline btn-sm" onclick="setProofSubLedger('세금계산서', this)">📜 1. 세금계산서 원장 (과세 10%)</button>
                     <button id="btn-proof-sub-bil" class="btn btn-outline btn-sm" onclick="setProofSubLedger('계산서', this)">📄 2. 계산서 원장 (면세 교육/도서)</button>
@@ -880,8 +889,34 @@
                     <button id="btn-proof-sub-etc" class="btn btn-outline btn-sm" onclick="setProofSubLedger('기타', this)">📁 5. 기타 원장 (간이/이체/원천세)</button>
                 </div>
 
+                <!-- 📅 기간 조회 필터 바 -->
+                <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:0.5rem; padding:0.85rem 1.25rem; margin-bottom:1.25rem; display:flex; flex-wrap:wrap; gap:1rem; align-items:center; justify-content:space-between; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
+                    <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                        <span style="font-weight:700; color:var(--text-main); font-size:0.9rem; display:flex; align-items:center; gap:0.35rem;">
+                            📅 원장 조회 기간:
+                        </span>
+                        <input type="date" id="proof_start_date" class="form-control" style="width:145px; height:34px; padding:0.25rem 0.5rem; font-size:0.85rem; border:1px solid #94a3b8; border-radius:4px;" onchange="applyProofPeriodFilter()">
+                        <span style="color:var(--text-muted); font-weight:700;">~</span>
+                        <input type="date" id="proof_end_date" class="form-control" style="width:145px; height:34px; padding:0.25rem 0.5rem; font-size:0.85rem; border:1px solid #94a3b8; border-radius:4px;" onchange="applyProofPeriodFilter()">
+                        <button class="btn btn-primary btn-sm" onclick="applyProofPeriodFilter()" style="height:34px; padding:0 0.85rem; font-weight:600;">🔍 기간 조회</button>
+                        <button class="btn btn-outline btn-sm" onclick="resetProofPeriodFilter()" style="height:34px; padding:0 0.7rem;">🔄 전체 초기화</button>
+                    </div>
+                    
+                    <!-- 퀵 기간 단축 버튼들 -->
+                    <div style="display:flex; gap:0.35rem; flex-wrap:wrap; align-items:center;">
+                        <span style="font-size:0.8rem; color:var(--text-muted); margin-right:0.25rem; font-weight:600;">⚡ 빠른선택:</span>
+                        <button type="button" class="btn btn-outline btn-sm proof-quick-btn" id="btn-proof-quick-all" onclick="setProofQuickPeriod('all', this)" style="padding:0.2rem 0.6rem; font-size:0.8rem;">전체</button>
+                        <button type="button" class="btn btn-outline btn-sm proof-quick-btn" id="btn-proof-quick-month" onclick="setProofQuickPeriod('thisMonth', this)" style="padding:0.2rem 0.6rem; font-size:0.8rem;">당월</button>
+                        <button type="button" class="btn btn-outline btn-sm proof-quick-btn" id="btn-proof-quick-q1" onclick="setProofQuickPeriod('q1', this)" style="padding:0.2rem 0.6rem; font-size:0.8rem;">1분기 (1~3월)</button>
+                        <button type="button" class="btn btn-outline btn-sm proof-quick-btn" id="btn-proof-quick-q2" onclick="setProofQuickPeriod('q2', this)" style="padding:0.2rem 0.6rem; font-size:0.8rem;">2분기 (4~6월)</button>
+                        <button type="button" class="btn btn-outline btn-sm proof-quick-btn" id="btn-proof-quick-q3" onclick="setProofQuickPeriod('q3', this)" style="padding:0.2rem 0.6rem; font-size:0.8rem;">3분기 (7~9월)</button>
+                        <button type="button" class="btn btn-outline btn-sm proof-quick-btn" id="btn-proof-quick-q4" onclick="setProofQuickPeriod('q4', this)" style="padding:0.2rem 0.6rem; font-size:0.8rem;">4분기 (10~12월)</button>
+                        <button type="button" class="btn btn-outline btn-sm proof-quick-btn active" id="btn-proof-quick-year" onclick="setProofQuickPeriod('thisYear', this)" style="padding:0.2rem 0.6rem; font-size:0.8rem;">당해연도 (2026년)</button>
+                    </div>
+                </div>
+
                 <!-- 증빙 요약 통계 배너 -->
-                <div id="proof-active-banner" style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:0.5rem; padding:1rem; margin-bottom:1.25rem;">
+                <div id="proof-active-banner" style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:0.5rem; padding:1.1rem; margin-bottom:1.25rem;">
                     <!-- 동적 렌더링 -->
                 </div>
 
@@ -2171,7 +2206,7 @@
 
     
     // ==========================================
-    // 📑 5대 증빙별 독립 전문 원장 제어
+    // 📑 5대 증빙별 독립 전문 원장 제어 (기간 조회 및 엑셀 다운로드 탑재)
     // ==========================================
     let currentProofSubLedger = '전체';
 
@@ -2184,15 +2219,138 @@
         renderProofLedger();
     }
 
+    function applyProofPeriodFilter() {
+        renderProofLedger();
+    }
+
+    function resetProofPeriodFilter() {
+        const sInput = document.getElementById('proof_start_date');
+        const eInput = document.getElementById('proof_end_date');
+        if (sInput) sInput.value = '';
+        if (eInput) eInput.value = '';
+        
+        document.querySelectorAll('.proof-quick-btn').forEach(b => b.classList.remove('active'));
+        const btnAll = document.getElementById('btn-proof-quick-all');
+        if (btnAll) btnAll.classList.add('active');
+
+        renderProofLedger();
+    }
+
+    function setProofQuickPeriod(type, btn) {
+        document.querySelectorAll('.proof-quick-btn').forEach(b => b.classList.remove('active'));
+        if (btn) btn.classList.add('active');
+
+        const sInput = document.getElementById('proof_start_date');
+        const eInput = document.getElementById('proof_end_date');
+        if (!sInput || !eInput) return;
+
+        const baseYear = 2026;
+        if (type === 'all') {
+            sInput.value = '';
+            eInput.value = '';
+        } else if (type === 'thisMonth') {
+            const today = new Date();
+            const y = today.getFullYear();
+            const m = String(today.getMonth() + 1).padStart(2, '0');
+            const lastDay = new Date(y, today.getMonth() + 1, 0).getDate();
+            sInput.value = `${y}-${m}-01`;
+            eInput.value = `${y}-${m}-${lastDay}`;
+        } else if (type === 'q1') {
+            sInput.value = `${baseYear}-01-01`;
+            eInput.value = `${baseYear}-03-31`;
+        } else if (type === 'q2') {
+            sInput.value = `${baseYear}-04-01`;
+            eInput.value = `${baseYear}-06-30`;
+        } else if (type === 'q3') {
+            sInput.value = `${baseYear}-07-01`;
+            eInput.value = `${baseYear}-09-30`;
+        } else if (type === 'q4') {
+            sInput.value = `${baseYear}-10-01`;
+            eInput.value = `${baseYear}-12-31`;
+        } else if (type === 'thisYear') {
+            sInput.value = `${baseYear}-01-01`;
+            eInput.value = `${baseYear}-12-31`;
+        }
+        renderProofLedger();
+    }
+
+    function downloadProofLedgerCSV() {
+        const db = getDB();
+        const pType = currentProofSubLedger;
+        const sDate = document.getElementById('proof_start_date') ? document.getElementById('proof_start_date').value : '';
+        const eDate = document.getElementById('proof_end_date') ? document.getElementById('proof_end_date').value : '';
+
+        let list = [...db.vouchers].sort((a,b) => a.date.localeCompare(b.date));
+        if (pType !== '전체') {
+            list = list.filter(v => v.proof_type === pType);
+        }
+        if (sDate) list = list.filter(v => v.date >= sDate);
+        if (eDate) list = list.filter(v => v.date <= eDate);
+
+        let csvContent = '\uFEFF일자,전표번호,증빙관리번호,구분,거래처명,품목/적요,공급가액,부가세,합계금액,결제상태,증빙유형\n';
+        list.forEach(v => {
+            const sup = Number(v.supply_amount || v.total_amount);
+            const vat = Number(v.vat_amount || 0);
+            const tot = Number(v.total_amount);
+            const row = [
+                `"${v.date}"`,
+                `"${v.voucher_no}"`,
+                `"${v.proof_no || ''}"`,
+                `"${v.type}"`,
+                `"${(v.counterparty_name || '').replace(/"/g, '""')}"`,
+                `"${(v.title || '').replace(/"/g, '""')}"`,
+                sup,
+                vat,
+                tot,
+                `"${v.payment_status}"`,
+                `"${v.proof_type}"`
+            ];
+            csvContent += row.join(',') + '\n';
+        });
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `증빙별원장_${pType}_${sDate || '전체'}~${eDate || '전체'}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
     function renderProofLedger() {
         const db = getDB();
         const pType = currentProofSubLedger;
+        const sDate = document.getElementById('proof_start_date') ? document.getElementById('proof_start_date').value : '';
+        const eDate = document.getElementById('proof_end_date') ? document.getElementById('proof_end_date').value : '';
+
+        let list = [...db.vouchers].sort((a,b) => a.date.localeCompare(b.date));
+        if (pType !== '전체') {
+            list = list.filter(v => v.proof_type === pType);
+        }
+        if (sDate) list = list.filter(v => v.date >= sDate);
+        if (eDate) list = list.filter(v => v.date <= eDate);
+
+        // 기간 라벨 텍스트 생성
+        let periodDesc = '전체 기간';
+        if (sDate && eDate) periodDesc = `${sDate} ~ ${eDate}`;
+        else if (sDate) periodDesc = `${sDate} 이후`;
+        else if (eDate) periodDesc = `${eDate} 이전`;
+
+        let sumSup = 0;
+        let sumVat = 0;
+        let sumTot = 0;
+
+        list.forEach(v => {
+            sumSup += Number(v.supply_amount || v.total_amount);
+            sumVat += Number(v.vat_amount || 0);
+            sumTot += Number(v.total_amount);
+        });
 
         // 배너 렌더링
         const banner = document.getElementById('proof-active-banner');
         if (banner) {
             let desc = '';
-            if (pType === '전체') desc = '전체 5대 법정 증빙의 통합 내역과 증빙별 거래 합계를 관리합니다.';
+            if (pType === '전체') desc = '전체 5대 법정 증빙의 통합 내역과 거래 합계를 관리합니다.';
             else if (pType === '세금계산서') desc = '과세 거래(10% VAT)에 대해 발행·수취한 전자세금계산서 법정 원장입니다.';
             else if (pType === '계산서') desc = '부가가치세가 면제되는 평생교육 수강료 및 도서출판 거래 전용 원장입니다.';
             else if (pType === '신용카드매출전표') desc = '법인카드 및 개인카드 결제 매입·매출 전표 원장입니다.';
@@ -2200,19 +2358,38 @@
             else desc = '간이영수증, 계좌이체증빙, 강사료 원천세 등 기타 법정 증빙 원장입니다.';
 
             banner.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:0.75rem; margin-bottom:0.75rem;">
                     <div>
-                        <strong style="font-size:1.1rem; color:var(--primary);">${getProofIcon(pType)} ${pType === '전체' ? '전체 법정 증빙 관리대장' : pType + ' 독립 전문 원장'}</strong>
-                        <div style="font-size:0.85rem; color:var(--text-muted); margin-top:2px;">${desc}</div>
+                        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                            <strong style="font-size:1.15rem; color:var(--primary);">${getProofIcon(pType)} ${pType === '전체' ? '전체 법정 증빙 관리대장' : pType + ' 독립 전문 원장'}</strong>
+                            <span style="background:#e0e7ff; color:#3730a3; padding:0.2rem 0.6rem; border-radius:4px; font-weight:700; font-size:0.8rem;">
+                                📅 조회 기간: ${periodDesc}
+                            </span>
+                            <span style="background:#f1f5f9; color:#475569; padding:0.2rem 0.6rem; border-radius:4px; font-weight:700; font-size:0.8rem;">
+                                조회 건수: ${list.length} 건
+                            </span>
+                        </div>
+                        <div style="font-size:0.85rem; color:var(--text-muted); margin-top:4px;">${desc}</div>
                     </div>
-                    <span class="badge badge-paid" style="font-size:0.85rem; padding:0.3rem 0.7rem;">국세청 적격증빙 규격</span>
+                    <span class="badge badge-paid" style="font-size:0.85rem; padding:0.35rem 0.75rem;">국세청 적격증빙 규격</span>
+                </div>
+
+                <!-- 기간 내 합계 지표 카드 3종 -->
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:0.75rem; background:#fff; padding:0.75rem 1rem; border-radius:0.375rem; border:1px solid #e2e8f0;">
+                    <div>
+                        <span style="font-size:0.75rem; color:#64748b; font-weight:600;">선택 기간 공급가액 합계</span>
+                        <div style="font-size:1.1rem; font-weight:800; color:#1e293b; font-family:monospace;">${sumSup.toLocaleString()} <span style="font-size:0.8rem; font-weight:500;">원</span></div>
+                    </div>
+                    <div>
+                        <span style="font-size:0.75rem; color:#64748b; font-weight:600;">선택 기간 부가세(VAT) 합계</span>
+                        <div style="font-size:1.1rem; font-weight:800; color:var(--primary); font-family:monospace;">${sumVat.toLocaleString()} <span style="font-size:0.8rem; font-weight:500;">원</span></div>
+                    </div>
+                    <div>
+                        <span style="font-size:0.75rem; color:#64748b; font-weight:600;">선택 기간 총 거래 합계</span>
+                        <div style="font-size:1.15rem; font-weight:800; color:#0f172a; font-family:monospace;">${sumTot.toLocaleString()} <span style="font-size:0.8rem; font-weight:500;">원</span></div>
+                    </div>
                 </div>
             `;
-        }
-
-        let list = [...db.vouchers].sort((a,b) => a.date.localeCompare(b.date));
-        if (pType !== '전체') {
-            list = list.filter(v => v.proof_type === pType);
         }
 
         const tbody = document.getElementById('proof-detail-tbody');
@@ -2220,22 +2397,15 @@
         if (!tbody) return;
 
         if (!list.length) {
-            tbody.innerHTML = `<tr><td colspan="10" class="text-center" style="padding:2.5rem; color:var(--text-muted);">${pType} 증빙으로 등록된 거래 내역이 없습니다.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="10" class="text-center" style="padding:2.5rem; color:var(--text-muted); font-size:0.95rem;">선택하신 기간(<code>${periodDesc}</code>) 내에 등록된 [<strong>${pType}</strong>] 증빙 거래 내역이 없습니다.</td></tr>`;
             if (tfoot) tfoot.innerHTML = '';
             return;
         }
-
-        let sumSup = 0;
-        let sumVat = 0;
-        let sumTot = 0;
 
         tbody.innerHTML = list.map(v => {
             const sup = Number(v.supply_amount || v.total_amount);
             const vat = Number(v.vat_amount || 0);
             const tot = Number(v.total_amount);
-            sumSup += sup;
-            sumVat += vat;
-            sumTot += tot;
 
             return `
                 <tr>
@@ -2258,11 +2428,11 @@
         if (tfoot) {
             tfoot.innerHTML = `
                 <tr>
-                    <td colspan="6" style="text-align:center;">[${pType}] 원장 총 합계</td>
+                    <td colspan="6" style="text-align:center;">[${pType}] 원장 기간 합계 (조회기간: ${periodDesc})</td>
                     <td style="text-align:right; font-family:monospace; font-size:1rem;">${sumSup.toLocaleString()} 원</td>
                     <td style="text-align:right; font-family:monospace; font-size:1rem; color:var(--primary);">${sumVat.toLocaleString()} 원</td>
                     <td style="text-align:right; font-family:monospace; font-size:1.1rem; color:#1e1b4b;">${sumTot.toLocaleString()} 원</td>
-                    <td></td>
+                    <td style="text-align:center; font-size:0.8rem; color:#64748b;">${list.length} 건</td>
                 </tr>
             `;
         }
@@ -2692,6 +2862,10 @@
         document.getElementById('v_date').value = new Date().toISOString().slice(0, 10);
         document.getElementById('cashbook_start').value = '2026-01-01';
         document.getElementById('cashbook_end').value = '2026-12-31';
+        const pStart = document.getElementById('proof_start_date');
+        const pEnd = document.getElementById('proof_end_date');
+        if (pStart && !pStart.value) pStart.value = '2026-01-01';
+        if (pEnd && !pEnd.value) pEnd.value = '2026-12-31';
 
         renderCategorySelect('수입');
         renderCounterpartySelect();
